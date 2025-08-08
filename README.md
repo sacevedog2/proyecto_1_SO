@@ -14,7 +14,10 @@ El simulador:
 PID: <número>, AX=<valor>, BX=<valor>, CX=<valor>, Quantum=<valor>
 
 **Ejecución**
-Compilar
+Compilar:
+
 gcc main.c -o simulador
-Ejecutar
+
+Ejecutar:
+
 ./simulador -f procesos.txt
