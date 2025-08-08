@@ -76,15 +76,11 @@ int cargarInstruccionesDesdeArchivo(Proceso* p) {
 int parsearProceso(char* linea, Proceso* proceso) {
     char* ptr = linea;
     
-    // Debug: mostrar la línea que se está parseando
-    printf("Debug: Parseando línea: '%s'\n", linea);
-    
     // Saltear espacios iniciales
     saltarEspacios(&ptr);
     
     // Verificar "PID:"
     if (strncmp(ptr, "PID:", 4) != 0) {
-        printf("Debug: Línea no comienza con 'PID:' - ignorando\n");
         return 0; // No es una línea válida de proceso
     }
     ptr += 4;
@@ -94,11 +90,9 @@ int parsearProceso(char* linea, Proceso* proceso) {
     
     // Leer el número del PID
     if (!isdigit(*ptr)) {
-        printf("Debug: No se encontró número después de 'PID:'\n");
         return 0;
     }
     proceso->pid = leerNumero(&ptr);
-    printf("Debug: PID leído: %d\n", proceso->pid);
     
     // Inicializar registros con valores por defecto
     proceso->ax = 0;
@@ -163,16 +157,10 @@ int cargarProcesos(const char* archivo, Proceso procesos[], int* total) {
         return 1;
     }
 
-    printf("Debug: Archivo %s abierto correctamente\n", archivo);
-
     char linea[200];
     *total = 0;
-    int numeroLinea = 0;
 
     while (fgets(linea, sizeof(linea), file)) {
-        numeroLinea++;
-        printf("Debug: Línea %d leída: '%s'\n", numeroLinea, linea);
-        
         // Eliminar espacios en blanco al final
         char* end = linea + strlen(linea) - 1;
         while (end > linea && (*end == '\n' || *end == '\r' || *end == ' ' || *end == '\t')) {
@@ -180,30 +168,22 @@ int cargarProcesos(const char* archivo, Proceso procesos[], int* total) {
             end--;
         }
         
-        printf("Debug: Línea %d después de limpiar: '%s'\n", numeroLinea, linea);
-        
         // Saltar líneas vacías
         if (strlen(linea) == 0) {
-            printf("Debug: Línea %d está vacía - saltando\n", numeroLinea);
             continue;
         }
         
         if (parsearProceso(linea, &procesos[*total])) {
-            printf("Debug: Proceso parseado correctamente - PID: %d\n", procesos[*total].pid);
             // Cargar instrucciones para este proceso
             if (cargarInstruccionesDesdeArchivo(&procesos[*total]) == 0) {
-                printf("Debug: Instrucciones cargadas para proceso %d\n", procesos[*total].pid);
                 (*total)++;
             } else {
                 printf("Error cargando instrucciones para proceso %d\n", 
                        procesos[*total].pid);
             }
-        } else {
-            printf("Debug: No se pudo parsear la línea %d\n", numeroLinea);
         }
     }
 
-    printf("Debug: Total de procesos cargados: %d\n", *total);
     fclose(file);
     return 0;
 }
@@ -301,31 +281,41 @@ void ejecutarInstruccion(Proceso* p) {
 
 void ejecutarRoundRobin(Proceso procesos[], int total) {
     int procesosTerminados = 0;
+    int ciclosMaximos = 1000; // Límite para evitar bucles infinitos
+    int cicloActual = 0;
 
-    while (procesosTerminados < total) {
+    while (procesosTerminados < total && cicloActual < ciclosMaximos) {
         for (int i = 0; i < total; i++) {
             Proceso* p = &procesos[i];
 
             if (strcmp(p->estado, "Terminado") == 0)
                 continue;
 
-            printf("\n[Cambio de contexto]\n");
+            printf("\n[Cambio de contexto - Ciclo %d]\n", cicloActual + 1);
             printf("Cargando proceso %d: PC=%d, AX=%d, BX=%d, CX=%d\n",
                    p->pid, p->pc, p->ax, p->bx, p->cx);
 
             strcpy(p->estado, "Ejecutando");
 
             int instruccionesEjecutadas = 0;
+            int instruccionesTotales = 0; // Contador de seguridad por proceso
 
-            while (instruccionesEjecutadas < p->quantum && p->pc < p->num_instrucciones) {
+            while (instruccionesEjecutadas < p->quantum && 
+                   p->pc < p->num_instrucciones && 
+                   instruccionesTotales < 100) { // Límite de instrucciones por quantum
                 ejecutarInstruccion(p);
                 instruccionesEjecutadas++;
+                instruccionesTotales++;
             }
 
             if (p->pc >= p->num_instrucciones) {
                 strcpy(p->estado, "Terminado");
                 procesosTerminados++;
                 printf("Proceso %d terminado.\n", p->pid);
+            } else if (instruccionesTotales >= 100) {
+                printf("Proceso %d detenido por exceso de instrucciones (posible bucle infinito)\n", p->pid);
+                strcpy(p->estado, "Terminado");
+                procesosTerminados++;
             } else {
                 strcpy(p->estado, "Listo");
             }
@@ -333,9 +323,15 @@ void ejecutarRoundRobin(Proceso procesos[], int total) {
             printf("Guardando proceso %d: PC=%d, AX=%d, BX=%d, CX=%d\n",
                    p->pid, p->pc, p->ax, p->bx, p->cx);
         }
+        cicloActual++;
     }
 
-    printf("\nTodos los procesos han terminado.\n");
+    if (cicloActual >= ciclosMaximos) {
+        printf("\nPROGRAMA DETENIDO: Se alcanzó el límite máximo de ciclos (%d)\n", ciclosMaximos);
+        printf("Posible bucle infinito detectado.\n");
+    } else {
+        printf("\nTodos los procesos han terminado.\n");
+    }
 }
 
 int main(int argc, char* argv[]) {
