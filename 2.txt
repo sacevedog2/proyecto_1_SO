@@ -1,4 +1,4 @@
 SUB CX, 1
 ADD AX, 5
-MUL BX, CX
+JMP 7
 NOP

@@ -14,6 +14,7 @@ typedef struct {
     char estado[15];
     char instrucciones[MAX_INSTRUCCIONES][50]; 
     int num_instrucciones;
+    int codigo_salida;
 } Proceso;
 
 // Función para saltarse espacios en blanco
@@ -42,6 +43,13 @@ void leerRegistro(char** ptr, char* registro) {
         i++;
     }
     registro[i] = '\0';
+}
+
+int* obtenerRegistro(Proceso* p, const char* nombre) {
+    if (strcmp(nombre, "AX") == 0) return &p->ax;
+    if (strcmp(nombre, "BX") == 0) return &p->bx;
+    if (strcmp(nombre, "CX") == 0) return &p->cx;
+    return NULL;
 }
 
 // Función para cargar instrucciones desde archivo
@@ -197,9 +205,8 @@ void imprimirProcesos(Proceso procesos[], int total) {
             procesos[i].num_instrucciones);
     }
 }
-
-void ejecutarInstruccion(Proceso* p) {
-    if (p->pc >= p->num_instrucciones) return;
+int ejecutarInstruccion(Proceso* p) {
+    if (p->pc >= p->num_instrucciones) return 1;
 
     char* instr = p->instrucciones[p->pc];
     printf("Proceso %d ejecutando: %s\n", p->pid, instr);
@@ -207,13 +214,11 @@ void ejecutarInstruccion(Proceso* p) {
     char* ptr = instr;
     char comando[10], reg1[3], reg2[3];
     int valor;
-    
+
     // Leer el comando
     int i = 0;
     while (*ptr && !isspace(*ptr) && i < 9) {
-        comando[i] = *ptr;
-        ptr++;
-        i++;
+        comando[i++] = *ptr++;
     }
     comando[i] = '\0';
 
@@ -223,60 +228,57 @@ void ejecutarInstruccion(Proceso* p) {
     else if (strcmp(comando, "INC") == 0) {
         saltarEspacios(&ptr);
         leerRegistro(&ptr, reg1);
-        
-        if (strcmp(reg1, "AX") == 0) p->ax += 1;
-        else if (strcmp(reg1, "BX") == 0) p->bx += 1;
-        else if (strcmp(reg1, "CX") == 0) p->cx += 1;
+        int* reg = obtenerRegistro(p, reg1);
+        if (reg) (*reg)++;
     }
     else if (strcmp(comando, "JMP") == 0) {
         saltarEspacios(&ptr);
         int destino = leerNumero(&ptr);
-        p->pc = destino - 1; // -1 porque se incrementará al final
+        if (destino < 1 || destino > p->num_instrucciones) {
+            printf("ERROR: Proceso %d intentó hacer JMP a instrucción inválida (%d)\n", p->pid, destino);
+            return 1;
+        }
+        p->pc = destino - 1;
+        return 0;
     }
-    else if (strcmp(comando, "ADD") == 0 || strcmp(comando, "SUB") == 0 || strcmp(comando, "MUL") == 0) {
+    else if (
+        strcmp(comando, "ADD") == 0 ||
+        strcmp(comando, "SUB") == 0 ||
+        strcmp(comando, "MUL") == 0) {
+        
         saltarEspacios(&ptr);
         leerRegistro(&ptr, reg1);
-        
-        // Saltar espacios y coma
+
         saltarEspacios(&ptr);
         if (*ptr == ',') ptr++;
         saltarEspacios(&ptr);
-        
+
         int esNumero = isdigit(*ptr);
         if (esNumero) {
             valor = leerNumero(&ptr);
         } else {
             leerRegistro(&ptr, reg2);
         }
-        
-        int valorOperando;
+
+        int* destino = obtenerRegistro(p, reg1);
+        if (!destino) return 1;
+
+        int operando = 0;
         if (esNumero) {
-            valorOperando = valor;
+            operando = valor;
         } else {
-            if (strcmp(reg2, "AX") == 0) valorOperando = p->ax;
-            else if (strcmp(reg2, "BX") == 0) valorOperando = p->bx;
-            else if (strcmp(reg2, "CX") == 0) valorOperando = p->cx;
-            else valorOperando = 0;
+            int* origen = obtenerRegistro(p, reg2);
+            if (!origen) return 1;
+            operando = *origen;
         }
-        
-        if (strcmp(comando, "ADD") == 0) {
-            if (strcmp(reg1, "AX") == 0) p->ax += valorOperando;
-            else if (strcmp(reg1, "BX") == 0) p->bx += valorOperando;
-            else if (strcmp(reg1, "CX") == 0) p->cx += valorOperando;
-        }
-        else if (strcmp(comando, "SUB") == 0) {
-            if (strcmp(reg1, "AX") == 0) p->ax -= valorOperando;
-            else if (strcmp(reg1, "BX") == 0) p->bx -= valorOperando;
-            else if (strcmp(reg1, "CX") == 0) p->cx -= valorOperando;
-        }
-        else if (strcmp(comando, "MUL") == 0) {
-            if (strcmp(reg1, "AX") == 0) p->ax *= valorOperando;
-            else if (strcmp(reg1, "BX") == 0) p->bx *= valorOperando;
-            else if (strcmp(reg1, "CX") == 0) p->cx *= valorOperando;
-        }
+
+        if (strcmp(comando, "ADD") == 0) *destino += operando;
+        else if (strcmp(comando, "SUB") == 0) *destino -= operando;
+        else if (strcmp(comando, "MUL") == 0) *destino *= operando;
     }
 
     p->pc += 1;
+    return 0;
 }
 
 void ejecutarRoundRobin(Proceso procesos[], int total) {
@@ -298,27 +300,44 @@ void ejecutarRoundRobin(Proceso procesos[], int total) {
             strcpy(p->estado, "Ejecutando");
 
             int instruccionesEjecutadas = 0;
-            int instruccionesTotales = 0; // Contador de seguridad por proceso
+            int instruccionesTotales = 0;
+
+            int error = 0;
 
             while (instruccionesEjecutadas < p->quantum && 
-                   p->pc < p->num_instrucciones && 
-                   instruccionesTotales < 100) { // Límite de instrucciones por quantum
-                ejecutarInstruccion(p);
+                p->pc < p->num_instrucciones && 
+                instruccionesTotales < 100) {
+
+                if (ejecutarInstruccion(p) != 0) {
+                    error = 1;
+                    break;
+                }
+
                 instruccionesEjecutadas++;
                 instruccionesTotales++;
-            }
+            }   
 
-            if (p->pc >= p->num_instrucciones) {
+                if (error) {
+                printf("Proceso %d finalizado con error en instrucción.\n", p->pid);
                 strcpy(p->estado, "Terminado");
+                p->codigo_salida = 1;
                 procesosTerminados++;
-                printf("Proceso %d terminado.\n", p->pid);
-            } else if (instruccionesTotales >= 100) {
-                printf("Proceso %d detenido por exceso de instrucciones (posible bucle infinito)\n", p->pid);
-                strcpy(p->estado, "Terminado");
-                procesosTerminados++;
-            } else {
-                strcpy(p->estado, "Listo");
-            }
+                }
+                else if (p->pc >= p->num_instrucciones) {
+                    strcpy(p->estado, "Terminado");
+                    p->codigo_salida = 0;
+                    procesosTerminados++;
+                    printf("Proceso %d terminado.\n", p->pid);
+                }
+                else if (instruccionesTotales >= 100) {
+                    printf("Proceso %d detenido por exceso de instrucciones (bucle infinito)\n", p->pid);
+                    strcpy(p->estado, "Terminado");
+                    p->codigo_salida = 1;
+                    procesosTerminados++;
+                }
+                else {
+                    strcpy(p->estado, "Listo");
+                }
 
             printf("Guardando proceso %d: PC=%d, AX=%d, BX=%d, CX=%d\n",
                    p->pid, p->pc, p->ax, p->bx, p->cx);
@@ -331,6 +350,12 @@ void ejecutarRoundRobin(Proceso procesos[], int total) {
         printf("Posible bucle infinito detectado.\n");
     } else {
         printf("\nTodos los procesos han terminado.\n");
+    }
+
+    // Mostrar códigos de salida al final
+    printf("\nResumen de estado de salida por proceso:\n");
+    for (int i = 0; i < total; i++) {
+        printf("Proceso %d → Código de salida: %d\n", procesos[i].pid, procesos[i].codigo_salida);
     }
 }
 
