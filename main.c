@@ -8,7 +8,7 @@
 
 typedef struct {
     int pid;
-    int pc; // Contador de programa
+    int pc; 
     int ax, bx, cx; 
     int quantum;
     char estado[15];
@@ -107,8 +107,8 @@ int parsearProceso(char* linea, Proceso* proceso) {
     proceso->bx = 0;
     proceso->cx = 0;
     proceso->quantum = 1; // Valor por defecto
-    
-    // Procesar el complemento
+
+    //  Leer campos extra (Quantum, AX, BX, CX) hasta fin de línea.
     while (*ptr != '\0' && *ptr != '\n') {
         saltarEspacios(&ptr);
         
@@ -234,7 +234,7 @@ int ejecutarInstruccion(Proceso* p) {
     else if (strcmp(comando, "JMP") == 0) {
         saltarEspacios(&ptr);
         int destino = leerNumero(&ptr);
-        if (destino < 1 || destino > p->num_instrucciones) {
+        if (destino < 0 || destino > p->num_instrucciones) {
             printf("ERROR: Proceso %d intentó hacer JMP a instrucción inválida (%d)\n", p->pid, destino);
             return 1;
         }
@@ -305,8 +305,7 @@ void ejecutarRoundRobin(Proceso procesos[], int total) {
             int error = 0;
 
             while (instruccionesEjecutadas < p->quantum && 
-                p->pc < p->num_instrucciones && 
-                instruccionesTotales < 100) {
+                p->pc < p->num_instrucciones) {
 
                 if (ejecutarInstruccion(p) != 0) {
                     error = 1;
@@ -329,12 +328,6 @@ void ejecutarRoundRobin(Proceso procesos[], int total) {
                     procesosTerminados++;
                     printf("Proceso %d terminado.\n", p->pid);
                 }
-                else if (instruccionesTotales >= 100) {
-                    printf("Proceso %d detenido por exceso de instrucciones (bucle infinito)\n", p->pid);
-                    strcpy(p->estado, "Terminado");
-                    p->codigo_salida = 1;
-                    procesosTerminados++;
-                }
                 else {
                     strcpy(p->estado, "Listo");
                 }
@@ -352,7 +345,7 @@ void ejecutarRoundRobin(Proceso procesos[], int total) {
         printf("\nTodos los procesos han terminado.\n");
     }
 
-    // Mostrar códigos de salida al final
+    // Códigos de salida al final
     printf("\nResumen de estado de salida por proceso:\n");
     for (int i = 0; i < total; i++) {
         printf("Proceso %d → Código de salida: %d\n", procesos[i].pid, procesos[i].codigo_salida);
