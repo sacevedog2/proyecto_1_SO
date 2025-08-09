@@ -18,6 +18,7 @@ El simulador:
 PID: <número>, AX=<valor>, BX=<valor>, CX=<valor>, Quantum=<valor>
 
 **Ejecución**
+
 Compilar:
 
 	•	gcc main.c -o simulador
